@@ -2,11 +2,18 @@ import subprocess
 import threading
 import os
 import sys
+import re
 from typing import Optional
+from .models import Packet
+from datetime import datetime
 
 _proc: Optional[subprocess.Popen] = None
 _process_thread: Optional[threading.Thread] = None
 _stop_requested = threading.Event()
+
+tcpdump_re = re.compile(
+    r'^(?P<ts>\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+)\s+(?P<proto>[A-Z]+)\s+(?P<srcip>[\d\.]+)\.(?P<sport>\d+)\s+>\s+(?P<dstip>[\d\.]+)\.(?P<dsport>\d+)'
+)
 
 def _process_output(proc: subprocess.Popen):
     assert proc.stdout is not None
@@ -15,9 +22,21 @@ def _process_output(proc: subprocess.Popen):
             if _stop_requested.is_set():
                 break
             # print each line from tcpdump live
-            print(line, end="")
+            m = tcpdump_re.search(line.strip())
+            packet = None
+            if m:
+                ts = datetime.strptime(m.group("ts"), "%Y-%m-%d %H:%M:%S.%f")
+                packet = Packet.objects.create(
+                    srcip=m.group("srcip"),
+                    sport=int(m.group("sport")),
+                    dstip=m.group("dstip"),
+                    dsport=int(m.group("dsport")),
+                    proto=m.group("proto"),
+                    timestamp=ts,
+                )
+            print(packet if packet else line.strip())
     except Exception as e:
-        # defensive: print error and exit reader
+        # defensive: print error and exit processor
         print(f"[reader error] {e}", file=sys.stderr)
     finally:
         # ensure stream is drained/closed
@@ -38,7 +57,7 @@ def start_sniffer():
     # clear any previous stop request
     _stop_requested.clear()
 
-    cmd = ["tcpdump", "-l", "-n", "-vv"]
+    cmd = ["sudo", "tcpdump", "-i", "any", "-nn", "-tttt"]
 
     print("Starting tcpdump... (Ctrl-C to stop)")
     print(" ".join(cmd))
