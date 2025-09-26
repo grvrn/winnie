@@ -6,3 +6,7 @@ from sniffer import sniffer
 def start_sniffer(request):
     sniffer.start_sniffer()
     return HttpResponse("Sniffer started")
+
+def stop_sniffer(request):
+    sniffer.stop_sniffer()
+    return HttpResponse("Sniffer stopped")
